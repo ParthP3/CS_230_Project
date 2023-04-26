@@ -35,6 +35,12 @@ std::size_t index_hash(uint64_t const& ip, std::bitset<L(NUM_COMPONENTS - 1)> co
     hash_combine(ret, ip, b);
     return ret;
 }
+std::size_t tag_hash(uint64_t const& ip, std::bitset<L(NUM_COMPONENTS - 1)> const& b)
+{
+    std::size_t ret = 0xdcc9797bb583d4;
+    hash_combine(ret, ip, b);
+    return ret;
+}
 
 std::size_t constexpr PRED_SIZE = 1024;
 std::size_t constexpr COUNTER_BITS = 3;
@@ -55,6 +61,7 @@ inline void dec(int& m)
 }
 
 static std::size_t nr_branches = 0;
+static bool msb_reset = true;
 
 using hist_t = std::bitset<L(NUM_COMPONENTS - 1)>;
 static std::map<O3_CPU*, hist_t> ght;
@@ -102,7 +109,7 @@ uint8_t O3_CPU::predict_branch(uint64_t ip, uint64_t predicted_target, uint8_t a
     // checking for tagged component hit
     for (int c = NUM_COMPONENTS - 1; c >= 0; --c) {
         std::size_t i = index_hash(ip, ght_p(this, L(c))) % PRED_SIZE;
-        if (tag[this][c][i] == (ip & 0xff)) {
+        if (tag[this][c][i] == (tag_hash(ip, ght_p(this, L(c))) & 0xff)) {
             if (!found_provider) {
                 provider = c;
                 last_pred = mode_tagged[this][c][i] >> (COUNTER_BITS - 1);
@@ -125,9 +132,11 @@ void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t tak
 {
     // graceful_reset
     if ((nr_branches >> USEFUL_BITS) > 0) {
+        int k = (msb_reset ? 1: 2);
+        msb_reset = !msb_reset;
         for (std::size_t c = 0; c < NUM_COMPONENTS; ++c)
             for (std::size_t i = 0; i < PRED_SIZE; ++i)
-                useful[this][c][i] = 0;
+                useful[this][c][i] &= k;
         nr_branches = 0;
     }
 
@@ -166,7 +175,7 @@ void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t tak
             std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
             mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
             useful[this][j][index] = 0;
-            tag[this][j][index] = ip & 0xff;
+            tag[this][j][index] = tag_hash(ip, ght_p(this, L(j))) & 0xff;
         } else {
             // probability business
             srand(0);
@@ -175,7 +184,7 @@ void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t tak
             std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
             mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
             useful[this][j][index] = 0;
-            tag[this][j][index] = ip & 0xff;
+            tag[this][j][index] = tag_hash(ip, ght_p(this, L(j))) & 0xff;
         }
 
         if (provider != NUM_COMPONENTS
