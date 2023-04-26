@@ -22,16 +22,16 @@ inline void hash_combine(std::size_t& seed, const T& v, Rest... rest)
 
 std::size_t constexpr L(std::size_t i)
 {
-    float constexpr alpha = 2;
+    float constexpr alpha = 1.5;
     std::size_t constexpr L0 = 2;
-    return (size_t)(std::pow(alpha, i - 1) * L0 + 0.5);
+    return (size_t)(std::pow(alpha, i) * L0 + 0.5);
 }
 
 template <std::size_t NUM_COMPONENTS>
 class tage_predictor {
     static std::size_t constexpr PRED_SIZE = 1024,
                                  TAG_BITS = 8,
-                                 COUNTER_BITS = 3,
+                                 COUNTER_BITS = 6,
                                  USEFUL_BITS = 2,
                                  USEFUL_RESET_PERIOD = 18;
 
