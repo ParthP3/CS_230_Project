@@ -29,11 +29,13 @@ std::size_t constexpr L(std::size_t i)
 
 template <std::size_t NUM_COMPONENTS>
 class tage_predictor {
-    static std::size_t constexpr PRED_SIZE = 16024,
+    static std::size_t constexpr PRED_SIZE = 1024,
                                  TAG_BITS = 8,
                                  COUNTER_BITS = 3,
                                  USEFUL_BITS = 2,
                                  USEFUL_RESET_PERIOD = 18;
+
+    static std::size_t constexpr tag_mask = (1 << TAG_BITS) - 1;
 
     // two hash functions
     static std::size_t index_hash(uint64_t const& ip, std::bitset<L(NUM_COMPONENTS - 1)> const& b)
@@ -107,11 +109,8 @@ public:
         srand(0);
     }
 
-    uint8_t predict(uint64_t ip, uint8_t always_taken)
+    uint8_t predict(uint64_t ip)
     {
-        if (always_taken)
-            return 1;
-
         ++nr_branches;
 
         bool found_provider = false;
@@ -120,7 +119,7 @@ public:
         // checking for tagged component hit
         for (int c = NUM_COMPONENTS - 1; c >= 0; --c) {
             std::size_t i = index_hash(ip, ght_p(L(c))) % PRED_SIZE;
-            if (tag[c][i] == (tag_hash(ip, ght_p(L(c))) & 0xff)) {
+            if (tag[c][i] == (tag_hash(ip, ght_p(L(c))) & tag_mask) && useful[c][i] > 0) {
                 if (!found_provider) {
                     provider = c;
                     last_pred = counter_tagged[c][i] >> (COUNTER_BITS - 1);
@@ -186,7 +185,7 @@ public:
                 std::size_t index = index_hash(ip, ght_p(L(j))) % PRED_SIZE;
                 counter_tagged[j][index] = (1 << (COUNTER_BITS - 1)) - (taken ? 0 : 1);
                 useful[j][index] = 0;
-                tag[j][index] = tag_hash(ip, ght_p(L(j))) & 0xff;
+                tag[j][index] = tag_hash(ip, ght_p(L(j))) & tag_mask;
             } else {
                 // probability business
                 if (rand() * 3 < RAND_MAX)
@@ -194,7 +193,7 @@ public:
                 std::size_t index = index_hash(ip, ght_p(L(j))) % PRED_SIZE;
                 counter_tagged[j][index] = (1 << (COUNTER_BITS - 1)) - (taken ? 0 : 1);
                 useful[j][index] = 0;
-                tag[j][index] = tag_hash(ip, ght_p(L(j))) & 0xff;
+                tag[j][index] = tag_hash(ip, ght_p(L(j))) & tag_mask;
             }
 
             if (provider != NUM_COMPONENTS && altpred != NUM_COMPONENTS
