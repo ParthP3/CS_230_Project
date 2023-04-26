@@ -146,8 +146,8 @@ void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t tak
 
     // updating u and inserting entries if possible
     if (taken == last_pred) {
-        if (provider != NUM_COMPONENTS
-                && mode_tagged[this][provider][i_provider] >> (COUNTER_BITS - 1) != mode_tagged[this][altpred][i_altpred] >> (COUNTER_BITS - 1))
+        if (provider != NUM_COMPONENTS && altpred != NUM_COMPONENTS
+                && mode_tagged[this][provider][i_provider] >> (COUNTER_BITS - 1) != mode_tagged[this][altpred][i_altpred] >> (COUNTER_BITS - 1) )
             incu(useful[this][provider][i_provider]);
     } else {
         std::size_t s = (provider != NUM_COMPONENTS) ? (provider + 1): 0;
@@ -186,7 +186,7 @@ void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t tak
             tag[this][j][index] = tag_hash(ip, ght_p(this, L(j))) & 0xff;
         }
 
-        if (provider != NUM_COMPONENTS
+        if (provider != NUM_COMPONENTS && altpred != NUM_COMPONENTS
                 && mode_tagged[this][provider][i_provider] >> (COUNTER_BITS - 1) != mode_tagged[this][altpred][i_altpred] >> (COUNTER_BITS - 1))
             dec(useful[this][provider][i_provider]);
     }
