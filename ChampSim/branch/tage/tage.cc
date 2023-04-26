@@ -36,9 +36,10 @@ std::size_t index_hash(uint64_t const& ip, std::bitset<L(NUM_COMPONENTS - 1)> co
     return ret;
 }
 
-std::size_t constexpr PRED_SIZE = 16384;
+std::size_t constexpr PRED_SIZE = 1024;
 std::size_t constexpr COUNTER_BITS = 3;
-std::size_t constexpr USEFUL_BITS = 3;
+std::size_t constexpr USEFUL_BITS = 2;
+std::size_t constexpr USEFUL_RESET_PERIOD = 18;
 
 inline void incc(int& m)
 {
@@ -53,22 +54,24 @@ inline void dec(int& m)
     m = std::max(m - 1, 0);
 }
 
+static std::size_t nr_branches = 0;
+
 using hist_t = std::bitset<L(NUM_COMPONENTS - 1)>;
-std::map<O3_CPU*, hist_t> ght;
+static std::map<O3_CPU*, hist_t> ght;
 inline hist_t ght_p(O3_CPU* p, std::size_t n)
 {
     std::size_t z = L(NUM_COMPONENTS - 1) - n;
     return (ght[p] << z) >> z;
 }
 
-std::map<O3_CPU*, std::array<int, PRED_SIZE>> mode_base;
+static std::map<O3_CPU*, std::array<int, PRED_SIZE>> mode_base;
 
-std::map<O3_CPU*, std::array<std::array<uint64_t, PRED_SIZE>, NUM_COMPONENTS>> tag;
-std::map<O3_CPU*, std::array<std::array<int, PRED_SIZE>, NUM_COMPONENTS>> mode_tagged;
-std::map<O3_CPU*, std::array<std::array<int, PRED_SIZE>, NUM_COMPONENTS>> useful;
+static std::map<O3_CPU*, std::array<std::array<uint64_t, PRED_SIZE>, NUM_COMPONENTS>> tag;
+static std::map<O3_CPU*, std::array<std::array<int, PRED_SIZE>, NUM_COMPONENTS>> mode_tagged;
+static std::map<O3_CPU*, std::array<std::array<int, PRED_SIZE>, NUM_COMPONENTS>> useful;
 
-uint8_t last_pred;
-std::size_t provider, altpred;
+static uint8_t last_pred;
+static std::size_t provider, altpred;
 // provider, altpred < NUM_COMPONENTS ==> tagged
 // provider, altpred = NUM_COMPONENTS ==> base
 
@@ -91,89 +94,108 @@ void O3_CPU::initialize_branch_predictor()
 
 uint8_t O3_CPU::predict_branch(uint64_t ip, uint64_t predicted_target, uint8_t always_taken, uint8_t branch_type)
 {
-    bool found = false;
+    ++nr_branches;
+
+    bool found_provider = false;
     altpred = provider = NUM_COMPONENTS;
+
+    // checking for tagged component hit
     for (int c = NUM_COMPONENTS - 1; c >= 0; --c) {
         std::size_t i = index_hash(ip, ght_p(this, L(c))) % PRED_SIZE;
         if (tag[this][c][i] == (ip & 0xff)) {
-            if (!found) {
+            if (!found_provider) {
                 provider = c;
                 last_pred = mode_tagged[this][c][i] >> (COUNTER_BITS - 1);
-                found = true;
+                found_provider = true;
             } else {
                 altpred = c;
                 break;
             }
         }
     }
-    std::cout << provider << ' ';
-    if (found)
+    if (found_provider)
         return last_pred;
-    std::size_t i = std::hash<uint64_t>{}(ip) % PRED_SIZE;
-    last_pred = mode_base[this][i] >= (1 << (COUNTER_BITS - 1));
+
+    std::size_t i_base = std::hash<uint64_t>{}(ip) % PRED_SIZE;
+    last_pred = mode_base[this][i_base] >> (COUNTER_BITS - 1);
     return last_pred;
 }
 
 void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t taken, uint8_t branch_type)
 {
-    if (taken == last_pred) {
-        if (provider != NUM_COMPONENTS) {
-            std::size_t i_provider = index_hash(ip, ght_p(this, L(provider))) % PRED_SIZE;
-            std::size_t i_altpred = index_hash(ip, ght_p(this, L(altpred))) % PRED_SIZE;
-            if (mode_tagged[this][provider][i_provider] >> (COUNTER_BITS - 1) != mode_tagged[this][altpred][i_altpred] >> (COUNTER_BITS - 1))
-                incu(useful[this][provider][i_provider]);
-            incc(mode_tagged[this][provider][i_provider]);
-        } else {
-            std::size_t i = std::hash<uint64_t>{}(ip) % PRED_SIZE;
-            if (taken == 1)
-                incc(mode_base[this][i]);
-            else
-                dec(mode_base[this][i]);
-        }
-    } else {
-        if (provider != NUM_COMPONENTS) {
-            std::size_t j = NUM_COMPONENTS, k = NUM_COMPONENTS;
-            for (std::size_t l = provider + 1; l < NUM_COMPONENTS; ++l) {
-                std::size_t index = index_hash(ip, ght_p(this, L(l))) % PRED_SIZE;
-                if (useful[this][l][index] == 0) {
-                    if (j == NUM_COMPONENTS)
-                        j = l;
-                    else if (k == NUM_COMPONENTS) {
-                        k = l;
-                        break;
-                    }
-                }
-            }
-            if (j == NUM_COMPONENTS) {
-                // all decremented
-                for (std::size_t c = provider + 1; c < NUM_COMPONENTS; ++c) {
-                    std::size_t index = index_hash(ip, ght_p(this, L(c))) % PRED_SIZE;
-                    dec(useful[this][c][index]);
-                }
-            } else if (k == NUM_COMPONENTS) {
-                // entry into j
-                std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
-                mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
-                useful[this][j][index] = 0;
-                tag[this][j][index] = ip & 0xff;
-            } else {
-                // probability business
-                srand(0);
-                if (rand() * 3 < RAND_MAX)
-                    j = k;
-                std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
-                mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
-                useful[this][j][index] = 0;
-                tag[this][j][index] = ip & 0xff;
-            }
-        } else {
-            std::size_t i = std::hash<uint64_t>{}(ip) % PRED_SIZE;
-            if (taken == 1)
-                dec(mode_base[this][i]);
-            else
-                incc(mode_base[this][i]);
-        }
+    // graceful_reset
+    if ((nr_branches >> USEFUL_BITS) > 0) {
+        for (std::size_t c = 0; c < NUM_COMPONENTS; ++c)
+            for (std::size_t i = 0; i < PRED_SIZE; ++i)
+                useful[this][c][i] = 0;
+        nr_branches = 0;
     }
+
+    std::size_t i_provider = index_hash(ip, ght_p(this, L(provider))) % PRED_SIZE;
+    std::size_t i_altpred = index_hash(ip, ght_p(this, L(altpred))) % PRED_SIZE;
+    std::size_t i_base = std::hash<uint64_t>{}(ip) % PRED_SIZE;
+
+    // updating u and inserting entries if possible
+    if (taken == last_pred) {
+        if (provider != NUM_COMPONENTS
+                && mode_tagged[this][provider][i_provider] >> (COUNTER_BITS - 1) != mode_tagged[this][altpred][i_altpred] >> (COUNTER_BITS - 1))
+            incu(useful[this][provider][i_provider]);
+    } else {
+        std::size_t s = (provider != NUM_COMPONENTS) ? (provider + 1): 0;
+
+        std::size_t j = NUM_COMPONENTS, k = NUM_COMPONENTS;
+        for (std::size_t c = s; c < NUM_COMPONENTS; ++c) {
+            std::size_t index = index_hash(ip, ght_p(this, L(c))) % PRED_SIZE;
+            if (useful[this][c][index] == 0) {
+                if (j == NUM_COMPONENTS)
+                    j = c;
+                else if (k == NUM_COMPONENTS) {
+                    k = c;
+                    break;
+                }
+            }
+        }
+        if (j == NUM_COMPONENTS) {
+            // all decremented
+            for (std::size_t c = s; c < NUM_COMPONENTS; ++c) {
+                std::size_t index = index_hash(ip, ght_p(this, L(c))) % PRED_SIZE;
+                dec(useful[this][c][index]);
+            }
+        } else if (k == NUM_COMPONENTS) {
+            // entry into j
+            std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
+            mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
+            useful[this][j][index] = 0;
+            tag[this][j][index] = ip & 0xff;
+        } else {
+            // probability business
+            srand(0);
+            if (rand() * 3 < RAND_MAX)
+                j = k;
+            std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
+            mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
+            useful[this][j][index] = 0;
+            tag[this][j][index] = ip & 0xff;
+        }
+
+        if (provider != NUM_COMPONENTS
+                && mode_tagged[this][provider][i_provider] >> (COUNTER_BITS - 1) != mode_tagged[this][altpred][i_altpred] >> (COUNTER_BITS - 1))
+            dec(useful[this][provider][i_provider]);
+    }
+
+    // updating mode counter
+    if (provider == NUM_COMPONENTS) {
+        if (taken == 1)
+            incc(mode_base[this][i_base]);
+        else
+            dec(mode_base[this][i_base]);
+    } else {
+        if (taken == 1)
+            incc(mode_tagged[this][provider][i_provider]);
+        else
+            dec(mode_tagged[this][provider][i_provider]);
+    }
+
     ght[this] <<= 1;
     ght[this].set(0, taken);
 }
