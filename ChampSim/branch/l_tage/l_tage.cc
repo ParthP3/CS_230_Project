@@ -85,6 +85,7 @@ static std::size_t provider, altpred;
 void O3_CPU::initialize_branch_predictor()
 {
     std::cout << "CPU " << cpu << " TAGE branch predictor\n";
+
     uint16_t start_mode = (1 << (COUNTER_BITS - 1));
     for (std::size_t j = 0; j < PRED_SIZE; ++j)
         mode_base[this][j] = start_mode;
@@ -96,7 +97,6 @@ void O3_CPU::initialize_branch_predictor()
         for (std::size_t j = 0; j < PRED_SIZE; ++j)
             useful[this][i][j] = 0;
     }
-    srand(0);
 }
 
 uint8_t O3_CPU::predict_branch(uint64_t ip, uint64_t predicted_target, uint8_t always_taken, uint8_t branch_type)
@@ -173,15 +173,16 @@ void O3_CPU::last_branch_result(uint64_t ip, uint64_t branch_target, uint8_t tak
         } else if (k == NUM_COMPONENTS) {
             // entry into j
             std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
-            mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1)) - (taken ? 0 : 1);
+            mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
             useful[this][j][index] = 0;
             tag[this][j][index] = tag_hash(ip, ght_p(this, L(j))) & 0xff;
         } else {
             // probability business
+            srand(0);
             if (rand() * 3 < RAND_MAX)
                 j = k;
             std::size_t index = index_hash(ip, ght_p(this, L(j))) % PRED_SIZE;
-            mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1)) - (taken ? 0 : 1);
+            mode_tagged[this][j][index] = (1 << (COUNTER_BITS - 1));
             useful[this][j][index] = 0;
             tag[this][j][index] = tag_hash(ip, ght_p(this, L(j))) & 0xff;
         }
