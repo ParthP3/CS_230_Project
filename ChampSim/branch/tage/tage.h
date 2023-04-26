@@ -119,7 +119,7 @@ public:
         // checking for tagged component hit
         for (int c = NUM_COMPONENTS - 1; c >= 0; --c) {
             std::size_t i = index_hash(ip, ght_p(L(c))) % PRED_SIZE;
-            if (tag[c][i] == (tag_hash(ip, ght_p(L(c))) & tag_mask) && useful[c][i] > 0) {
+            if (tag[c][i] == (tag_hash(ip, ght_p(L(c))) & tag_mask)) {
                 if (!found_provider) {
                     provider = c;
                     last_pred = counter_tagged[c][i] >> (COUNTER_BITS - 1);
