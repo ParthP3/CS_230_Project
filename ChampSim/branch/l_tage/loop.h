@@ -22,6 +22,7 @@ class loop_predictor {
     std::array<uint8_t, PRED_SIZE> conf;
 
     bool valid;
+    uint8_t seed;
 
     uint8_t last_pred;
     uint16_t last_tag;
@@ -55,7 +56,7 @@ public:
             if (tag[i] == last_tag) {
                 entry_way = i;
                 valid = (conf[i] == 3);
-                last_pred = (curr_iter[i] + 1 == past_iter[i] ? 0 : 1);
+                last_pred = ((curr_iter[i] + 1) == past_iter[i] ? 0 : 1);
                 return last_pred;
             }
         }
@@ -67,7 +68,6 @@ public:
 
     void update_state(uint64_t taken, uint64_t tage_pred)
     {
-        static uint8_t seed;
         if (entry_way >= 0) {
             int entry = entry_index + entry_way;
             if (valid) {
@@ -76,6 +76,7 @@ public:
                     past_iter[entry] = 0;
                     conf[entry] = 0;
                     curr_iter[entry] = 0;
+                    return;
                 }
                 if (taken != tage_pred) {
                     if (age[entry] < 31)
@@ -85,6 +86,15 @@ public:
 
             ++curr_iter[entry];
             curr_iter[entry] &= ((1 << ITER_BITS) - 1);
+
+            if (curr_iter[entry] > past_iter[entry]) {
+                conf[entry] = 0;
+                if (past_iter[entry] != 0) {
+                    past_iter[entry] = 0;
+                    age[entry] = 0;
+                    conf[entry] = 0;
+                }
+            }
 
             if (!taken) {
                 if (curr_iter[entry] == past_iter[entry]) {
@@ -109,14 +119,15 @@ public:
                 curr_iter[entry] = 0;
             }
         } else if (taken) {
-            seed = (seed + 1) & 3;
+            seed = (seed + 1) & ((1 << WAY_BITS) - 1);
             for (std::size_t i = 0; i < WAY; ++i) {
-                int j = entry_index + ((seed + i) & 3);
+                int j = entry_index + ((seed + i) & ((1 << WAY_BITS) - 1));
                 if (age[j] == 0) {
                     tag[j] = last_tag;
                     past_iter[j] = 0;
                     curr_iter[j] = 1;
                     conf[j] = 0;
+                    age[j] = 31;
                     break;
                 } else if (age[j] > 0)
                     --age[j];
