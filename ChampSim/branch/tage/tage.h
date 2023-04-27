@@ -34,7 +34,7 @@ class tage_predictor {
                                  USEFUL_BITS = 2,
                                  USEFUL_RESET_PERIOD = 18;
 
-    static std::array<std::size_t, NUM_COMPONENTS + 1> constexpr COUNTER_BITS_ARRAY = { 3, 4, 5, 6, 3 };
+    static std::array<std::size_t, NUM_COMPONENTS + 1> constexpr COUNTER_BITS_ARRAY = { 4, 6, 8, 10, 2 };
 
     static std::size_t constexpr tag_mask = (1 << TAG_BITS) - 1;
 
