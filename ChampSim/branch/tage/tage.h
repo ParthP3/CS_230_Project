@@ -141,7 +141,7 @@ public:
     void update_state(uint64_t ip, uint64_t taken)
     {
         // graceful_reset
-        if ((nr_branches >> USEFUL_BITS) > 0) {
+        if ((nr_branches >> USEFUL_RESET_PERIOD) > 0) {
             int k = (msb_reset ? 1: 2);
             msb_reset = !msb_reset;
             for (std::size_t c = 0; c < NUM_COMPONENTS; ++c)

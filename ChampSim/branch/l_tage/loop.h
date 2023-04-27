@@ -20,6 +20,7 @@ class loop_predictor {
     std::array<uint16_t, PRED_SIZE> curr_iter;
     std::array<uint8_t, PRED_SIZE> age;
     std::array<uint8_t, PRED_SIZE> conf;
+    std::array<uint8_t, PRED_SIZE> dir;
 
     bool valid;
     uint8_t seed;
@@ -37,6 +38,7 @@ public:
             curr_iter[i] = 0;
             age[i] = 0;
             conf[i] = 0;
+            dir[i] = 0;
         }
         valid = false;
     }
@@ -50,13 +52,13 @@ public:
     {
         entry_way = -1;
         entry_index = (ip & ((1 << INDEX_BITS) - 1)) << WAY_BITS;
-        last_tag = std::hash<uint64_t>{}(ip) & ((1 << TAG_BITS) - 1);
+        last_tag =(ip >> INDEX_BITS) & ((1 << TAG_BITS) - 1);
 
         for (std::size_t i = entry_index; i < entry_index + WAY; ++i) {
             if (tag[i] == last_tag) {
                 entry_way = i;
                 valid = (conf[i] == 3);
-                last_pred = ((curr_iter[i] + 1) == past_iter[i] ? 0 : 1);
+                last_pred = ((curr_iter[i] + 1) == past_iter[i] ? !dir[i] : dir[i]);
                 return last_pred;
             }
         }
@@ -89,19 +91,16 @@ public:
 
             if (curr_iter[entry] > past_iter[entry]) {
                 conf[entry] = 0;
-                if (past_iter[entry] != 0) {
-                    past_iter[entry] = 0;
-                    age[entry] = 0;
-                    conf[entry] = 0;
-                }
+                past_iter[entry] = 0;
             }
 
-            if (!taken) {
+            if (taken != dir[entry]) {
                 if (curr_iter[entry] == past_iter[entry]) {
                     if (conf[entry] < 3)
                         ++conf[entry];
 
                     if (past_iter[entry] > 0 && past_iter[entry] < 3) {
+                        dir[entry] = taken;
                         past_iter[entry] = 0;
                         age[entry] = 0;
                         conf[entry] = 0;
@@ -112,7 +111,6 @@ public:
                         past_iter[entry] = curr_iter[entry];
                     } else {
                         past_iter[entry] = 0;
-                        age[entry] = 0;
                         conf[entry] = 0;
                     }
                 }
@@ -123,13 +121,14 @@ public:
             for (std::size_t i = 0; i < WAY; ++i) {
                 int j = entry_index + ((seed + i) & ((1 << WAY_BITS) - 1));
                 if (age[j] == 0) {
+                    dir[j] = !taken;
                     tag[j] = last_tag;
                     past_iter[j] = 0;
                     curr_iter[j] = 1;
                     conf[j] = 0;
                     age[j] = 31;
                     break;
-                } else if (age[j] > 0)
+                } else
                     --age[j];
             }
         }
