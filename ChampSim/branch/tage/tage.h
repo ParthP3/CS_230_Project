@@ -23,7 +23,7 @@ inline void hash_combine(std::size_t& seed, const T& v, Rest... rest)
 std::size_t constexpr L(std::size_t i)
 {
     float constexpr alpha = 1.5;
-    std::size_t constexpr L0 = 2;
+    std::size_t constexpr L0 = 1;
     return (size_t)(std::pow(alpha, i) * L0 + 0.5);
 }
 
@@ -31,9 +31,10 @@ template <std::size_t NUM_COMPONENTS>
 class tage_predictor {
     static std::size_t constexpr PRED_SIZE = 1024,
                                  TAG_BITS = 8,
-                                 COUNTER_BITS = 6,
                                  USEFUL_BITS = 2,
                                  USEFUL_RESET_PERIOD = 18;
+
+    static std::array<std::size_t, NUM_COMPONENTS + 1> constexpr COUNTER_BITS_ARRAY = { 3, 4, 5, 6, 3 };
 
     static std::size_t constexpr tag_mask = (1 << TAG_BITS) - 1;
 
@@ -52,9 +53,9 @@ class tage_predictor {
     }
 
     // incrementing and decrementing counters and useful
-    static void incc(int& m)
+    static void incc(int& m, std::size_t c)
     {
-        m = std::min(m + 1, (1 << COUNTER_BITS) - 1);
+        m = std::min(m + 1, (1 << COUNTER_BITS_ARRAY[c]) - 1);
     }
     static void incu(int& u)
     {
@@ -93,12 +94,11 @@ class tage_predictor {
 public:
     void init()
     {
-        uint16_t start_counter = (1 << (COUNTER_BITS - 1));
         for (std::size_t j = 0; j < PRED_SIZE; ++j)
-            counter_base[j] = start_counter;
+            counter_base[j] = (1 << (COUNTER_BITS_ARRAY[NUM_COMPONENTS] - 1));
         for (std::size_t i = 0; i < NUM_COMPONENTS; ++i) {
             for (std::size_t j = 0; j < PRED_SIZE; ++j)
-                counter_tagged[i][j] = start_counter;
+                counter_tagged[i][j] = (1 << (COUNTER_BITS_ARRAY[i] - 1));
             for (std::size_t j = 0; j < PRED_SIZE; ++j)
                 tag[i][j] = 0;
             for (std::size_t j = 0; j < PRED_SIZE; ++j)
@@ -122,7 +122,7 @@ public:
             if (tag[c][i] == (tag_hash(ip, ght_p(L(c))) & tag_mask)) {
                 if (!found_provider) {
                     provider = c;
-                    last_pred = counter_tagged[c][i] >> (COUNTER_BITS - 1);
+                    last_pred = counter_tagged[c][i] >> (COUNTER_BITS_ARRAY[c] - 1);
                     found_provider = true;
                 } else {
                     altpred = c;
@@ -134,7 +134,7 @@ public:
             return last_pred;
 
         std::size_t i_base = std::hash<uint64_t>{}(ip) % PRED_SIZE;
-        last_pred = counter_base[i_base] >> (COUNTER_BITS - 1);
+        last_pred = counter_base[i_base] >> (COUNTER_BITS_ARRAY[NUM_COMPONENTS] - 1);
         return last_pred;
     }
 
@@ -157,7 +157,7 @@ public:
         // updating u and inserting entries if possible
         if (taken == last_pred) {
             if (provider != NUM_COMPONENTS && altpred != NUM_COMPONENTS
-                    && counter_tagged[provider][i_provider] >> (COUNTER_BITS - 1) != counter_tagged[altpred][i_altpred] >> (COUNTER_BITS - 1) )
+                    && last_pred != counter_tagged[altpred][i_altpred] >> (COUNTER_BITS_ARRAY[altpred] - 1) )
                 incu(useful[provider][i_provider]);
         } else {
             std::size_t s = (provider != NUM_COMPONENTS) ? (provider + 1): 0;
@@ -183,7 +183,7 @@ public:
             } else if (k == NUM_COMPONENTS) {
                 // entry into j
                 std::size_t index = index_hash(ip, ght_p(L(j))) % PRED_SIZE;
-                counter_tagged[j][index] = (1 << (COUNTER_BITS - 1)) - (taken ? 0 : 1);
+                counter_tagged[j][index] = (1 << (COUNTER_BITS_ARRAY[j] - 1)) - (taken ? 0 : 1);
                 useful[j][index] = 0;
                 tag[j][index] = tag_hash(ip, ght_p(L(j))) & tag_mask;
             } else {
@@ -191,25 +191,25 @@ public:
                 if (rand() * 3 < RAND_MAX)
                     j = k;
                 std::size_t index = index_hash(ip, ght_p(L(j))) % PRED_SIZE;
-                counter_tagged[j][index] = (1 << (COUNTER_BITS - 1)) - (taken ? 0 : 1);
+                counter_tagged[j][index] = (1 << (COUNTER_BITS_ARRAY[j] - 1)) - (taken ? 0 : 1);
                 useful[j][index] = 0;
                 tag[j][index] = tag_hash(ip, ght_p(L(j))) & tag_mask;
             }
 
             if (provider != NUM_COMPONENTS && altpred != NUM_COMPONENTS
-                    && counter_tagged[provider][i_provider] >> (COUNTER_BITS - 1) != counter_tagged[altpred][i_altpred] >> (COUNTER_BITS - 1))
+                    && last_pred != counter_tagged[altpred][i_altpred] >> (COUNTER_BITS_ARRAY[altpred] - 1))
                 dec(useful[provider][i_provider]);
         }
 
         // updating counter counter
         if (provider == NUM_COMPONENTS) {
             if (taken == 1)
-                incc(counter_base[i_base]);
+                incc(counter_base[i_base], NUM_COMPONENTS);
             else
                 dec(counter_base[i_base]);
         } else {
             if (taken == 1)
-                incc(counter_tagged[provider][i_provider]);
+                incc(counter_tagged[provider][i_provider], provider);
             else
                 dec(counter_tagged[provider][i_provider]);
         }
